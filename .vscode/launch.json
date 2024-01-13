@@ -7,7 +7,7 @@
         {
             "type": "lldb",
             "request": "launch",
-            "name": "GENS: compute",
+            "name": "GENS",
             "cargo": {
                 "args": [
                     "build",
@@ -19,32 +19,11 @@
                     "kind": "bin"
                 }
             },
-            "args": ["compute",
-                     "--gtf", "example/test.gtf", 
+            "args": ["--gtf", "example/test.gtf", 
                      "--faidx", "example/test.fa.fai", 
                      "--output", "example/test.densities.bed",
-                     "--resolution", "100000"],
-            "cwd": "${workspaceFolder}"
-        },
-        {
-            "type": "lldb",
-            "request": "launch",
-            "name": "GENS: zoom",
-            "cargo": {
-                "args": [
-                    "build",
-                    "--bin=gens",
-                    "--package=gens"
-                ],
-                "filter": {
-                    "name": "gens",
-                    "kind": "bin"
-                }
-            },
-            "args": ["zoom",
-                     "--input", "example/test.densities.bed", 
-                     "--output", "example/test.densities.zoomed.5.bed", 
-                     "-x", "5"],
+                     "--resolution", "100000",
+                     "--normalize"],
             "cwd": "${workspaceFolder}"
         }
     ]

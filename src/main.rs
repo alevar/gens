@@ -1,6 +1,6 @@
 extern crate clap;
 
-use clap::{Command,Arg};
+use clap::{Command,Arg, ArgAction};
 /*
 ========================================
     Module for computing gene densities
@@ -72,7 +72,7 @@ mod compute_densities {
         exon_map
     }
 
-    pub fn compute_density(faidx: &HashMap<String, usize>, genes: &HashMap<String, ArrayBackedIntervalTree<u64,String>>, interval: &u32) -> HashMap<String, ArrayBackedIntervalTree<u64,u32>> {
+    pub fn compute_density(faidx: &HashMap<String, usize>, genes: &HashMap<String, ArrayBackedIntervalTree<u64,String>>, interval: &f64) -> HashMap<String, ArrayBackedIntervalTree<u64,f64>> {
         // iterate over faidx
         // for every chromosome iterate in intervals of specified resolution
         // for every interval pull slice of the interval tree
@@ -106,7 +106,7 @@ mod compute_densities {
                 }
 
                 // update gene_count
-                seqid_densities.insert(Interval::new(start..(start + interval.clone() as u64)).unwrap(), unique_genes.len() as u32);
+                seqid_densities.insert(Interval::new(start..(start + interval.clone() as u64)).unwrap(), unique_genes.len() as f64);
 
                 // update start
                 start += interval.clone() as u64;
@@ -116,7 +116,35 @@ mod compute_densities {
         densities
     }
 
-    pub fn report(densities: &HashMap<String, ArrayBackedIntervalTree<u64,u32>>, outfname: Option<&String>) {
+    pub fn normalize(densities: &HashMap<String, ArrayBackedIntervalTree<u64,f64>>) -> HashMap<String, ArrayBackedIntervalTree<u64,f64>> {
+        // find maximum value
+        let mut max_value = 0.0;
+        for (_seqid, seqid_density) in densities.iter() {
+            for interval in seqid_density {
+                let seqid_density = interval.data();
+                if seqid_density > &max_value {
+                    max_value = *seqid_density as f64;
+                }
+            }
+        }
+
+        // normalize
+        let mut normalized_densities = HashMap::new();
+
+        for (seqid, seqid_density) in densities.iter() {
+            let seqid_normalized_density = normalized_densities.entry(seqid.clone()).or_insert_with(|| ArrayBackedIntervalTree::new());
+            for interval in seqid_density {
+                let start = interval.interval().start;
+                let end = interval.interval().end;
+                let seqid_density = interval.data();
+                seqid_normalized_density.insert(Interval::new(start..end).unwrap(), seqid_density / max_value);
+            }
+        }
+
+        normalized_densities
+    }
+
+    pub fn report(densities: &HashMap<String, ArrayBackedIntervalTree<u64,f64>>, outfname: Option<&String>) {
         match outfname {
             Some(outfname) => {
                 let mut out_fp = fs::File::create(outfname).unwrap();
@@ -143,120 +171,77 @@ mod compute_densities {
     }
 }
 
-/*
-========================================
-    Module for manipulating densities
-========================================
-*/
-mod zoom_densities {
-    use std::collections::HashMap;
-
-    pub fn zoom_in(densities: &HashMap<String, Vec<u32>>, zoom_factor: &f64) -> HashMap<String, Vec<u32>> {
-        unimplemented!()
-    }
-}
-
 fn main() {
+
     let matches = Command::new("SAM 2 GTF")
         .version("0.1.0")
         .author("Ales Varabyou")
         .about("Compute gene densities over the genome")
-        .subcommands( [
-            Command::new("compute")
-            .about("Controls configuration functionality")
-            .arg(
-                Arg::new("gtf")
-                .short('g')
-                .long("gtf")
-                .help("Gene annotation in GTF format.")
-                .required(true)
-                .value_name("FILE")
-            )
-            .arg(
-                Arg::new("output")
-                .short('o')
-                .long("output")
-                .help("Output file containing densities in the format: chromosome_name\tstart_position\tend_position\tdensity")
-                .required(false)
-                .value_name("FILE")
-            )
-            .arg(
-                Arg::new("faidx")
-                .short('i')
-                .long("faidx")
-                .help("FASTA index file")
-                .required(true)
-                .value_name("FILE")
-            )
-            .arg(
-                Arg::new("resolution")
-                .short('r')
-                .long("resolution")
-                .help("Resolution for which densities will be computed. If 1000000 is specified, densities will be computed for 1Mb windows.")
-                .default_value("1000000")
-                .value_name("INT")
-                .value_parser(clap::value_parser!(u32))
-            )
-            .arg(
-                Arg::new("feature")
-                .short('f')
-                .long("feature")
-                .help("Feature to use for computing densities. Default: exon")
-                .default_value("exon")
-                .value_name("STRING")
-            ),
-            Command::new("zoom")
-            .about("Changes resolution of the density map")
-            .arg(
-                Arg::new("zoom_factor")
-                .short('x')
-                .long("zoom_factor")
-                .help("Magnification factor")
-                .required(true)
-                .value_name("FLOAT")
-                .value_parser(clap::value_parser!(f64))
-            )
-            .arg(
-                Arg::new("input")
-                .short('i')
-                .long("input")
-                .help("Input file containing densities in the format: chromosome_name\tstart_position\tend_position\tdensity")
-                .required(true)
-                .value_name("FILE")
-            )
-            .arg(
-                Arg::new("output")
-                .short('o')
-                .long("output")
-                .help("Output file containing densities in the format: chromosome_name\tstart_position\tend_position\tdensity")
-                .required(true)
-                .value_name("FILE")
-            )]
+        .about("Controls configuration functionality")
+        .arg(
+            Arg::new("gtf")
+            .short('g')
+            .long("gtf")
+            .help("Gene annotation in GTF format.")
+            .required(true)
+            .value_name("FILE")
+        )
+        .arg(
+            Arg::new("output")
+            .short('o')
+            .long("output")
+            .help("Output file containing densities in the format: chromosome_name\tstart_position\tend_position\tdensity")
+            .required(false)
+            .value_name("FILE")
+        )
+        .arg(
+            Arg::new("faidx")
+            .short('i')
+            .long("faidx")
+            .help("FASTA index file")
+            .required(true)
+            .value_name("FILE")
+        )
+        .arg(
+            Arg::new("resolution")
+            .short('r')
+            .long("resolution")
+            .help("Resolution for which densities will be computed. If 1000000 is specified, densities will be computed for 1Mb windows.")
+            .default_value("1000000")
+            .value_name("FLOAT")
+            .value_parser(clap::value_parser!(f64))
+        )
+        .arg(
+            Arg::new("feature")
+            .short('f')
+            .long("feature")
+            .help("Feature to use for computing densities. Default: exon")
+            .default_value("exon")
+            .value_name("STRING")
+        )
+        .arg(Arg::new("normalize")
+            .short('n')
+            .long("normalize")
+            .action(ArgAction::SetTrue)
+            .help("Normalize densities to [0-1] range")
         )
         .after_help("--help or -h")
         .get_matches();
 
-    match matches.subcommand() {
-        Some(("compute",  sub_matches)) => {
-            let faidx_fname: &String = sub_matches.get_one("faidx").unwrap();
-            let gtf_fname: &String = sub_matches.get_one("gtf").unwrap();
-            let out_fname: Option<&String> = sub_matches.get_one("output");
-            let resolution: &u32 = sub_matches.get_one::<u32>("resolution").unwrap();
-            let feature: &String = sub_matches.get_one("feature").unwrap();
+    let faidx_fname: &String = matches.get_one("faidx").unwrap();
+    let gtf_fname: &String = matches.get_one("gtf").unwrap();
+    let out_fname: Option<&String> = matches.get_one("output");
+    let resolution: &f64 = matches.get_one::<f64>("resolution").unwrap();
+    let feature: &String = matches.get_one("feature").unwrap();
+    let normalize: bool = matches.get_flag("normalize");
 
-            let seqid_lengths = compute_densities::load_faidx(&faidx_fname);
-            for(seqid, &length) in seqid_lengths.iter() {
-                println!("{}: {}", seqid, length);
-            }
-            let gene_positions = compute_densities::load_gtf(&gtf_fname, feature);
-            let densities = compute_densities::compute_density(&seqid_lengths, &gene_positions, &resolution);
-            compute_densities::report(&densities,out_fname);
-        },
-        Some(("zoom", sub_matches)) => {
-            let zoom_factor: &f64 = sub_matches.get_one::<f64>("zoom_factor")
-                                                .unwrap();
-                                            
-        }
-        _ => println!("Please use one of the available subcommands: compute, zoom"),
+    let seqid_lengths = compute_densities::load_faidx(&faidx_fname);
+    let gene_positions = compute_densities::load_gtf(&gtf_fname, feature);
+    let mut densities = compute_densities::compute_density(&seqid_lengths, &gene_positions, &resolution);
+    
+    if normalize {
+        densities = compute_densities::normalize(&densities);
     }
+    
+    compute_densities::report(&densities,out_fname);
 }
