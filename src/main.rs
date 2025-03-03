@@ -224,7 +224,7 @@ mod compute_densities {
                         let start = interval.interval().start;
                         let end = interval.interval().end;
                         let seqid_density = interval.data();
-                        writeln!(out_fp, "{}\t{}\t{}\t{}", seqid, start, end, seqid_density).unwrap();
+                        writeln!(out_fp, "{}\t{}\t{}\t{}\t{}\t{}", seqid, start, end, '-', seqid_density, '.').unwrap();
                     }
                 }
             }, 
@@ -234,7 +234,7 @@ mod compute_densities {
                         let start = interval.interval().start;
                         let end = interval.interval().end;
                         let seqid_density = interval.data();
-                        println!("{}\t{}\t{}\t{}", seqid, start, end, seqid_density);
+                        println!("{}\t{}\t{}\t{}\t{}\t{}", seqid, start, end, '-', seqid_density, '.');
                     }
                 }
             }
@@ -261,7 +261,7 @@ fn main() {
             Arg::new("output")
             .short('o')
             .long("output")
-            .help("Output file containing densities in the format: chromosome_name\tstart_position\tend_position\tdensity")
+            .help("Output file containing densities in the bed format: chromosome_name\tstart_position\tend_position\tblank_name\tdensity\tblank_strand")
             .required(false)
             .value_name("FILE")
         )
