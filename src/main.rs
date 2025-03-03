@@ -6,12 +6,76 @@ use clap::{Command,Arg, ArgAction};
     Module for computing gene densities
 ========================================
 */
+
 mod compute_densities {
     use std::collections::{HashMap, HashSet};
     use std::fs;
     use std::io::{self, BufRead, Write};
+    use std::cmp::Ordering;
     use bio::utils::Interval;
-    use bio::data_structures::interval_tree::ArrayBackedIntervalTree;
+    use bio::data_structures::interval_tree::{ArrayBackedIntervalTree, EntryT};
+
+    #[derive(Debug, Clone)]
+    pub struct IntervalEntry<T> {
+        pub data: T,
+        pub interval: Interval<u64>,
+    }
+
+    impl<T> IntervalEntry<T> {
+        pub fn new(data: T, interval: Interval<u64>) -> Self {
+            IntervalEntry { data, interval }
+        }
+
+        pub fn data(&self) -> &T {
+            &self.data
+        }
+    }
+
+    // Implement EntryT for IntervalEntry
+    impl<T> EntryT for IntervalEntry<T> {
+        type N = u64;
+        fn interval(&self) -> &Interval<Self::N> {
+            &self.interval
+        }
+    }
+
+    // Implement EntryT for references to IntervalEntry
+    impl<'a, T> EntryT for &'a IntervalEntry<T> {
+        type N = u64;
+
+        fn interval(&self) -> &Interval<Self::N> {
+            &self.interval
+        }
+    }
+
+    // Implement PartialEq for IntervalEntry
+    impl<T: PartialEq> PartialEq for IntervalEntry<T> {
+        fn eq(&self, other: &Self) -> bool {
+            self.data == other.data && self.interval == other.interval
+        }
+    }
+
+    impl<T: Eq> Eq for IntervalEntry<T> {}
+
+    // Implement Ord for IntervalEntry
+    impl<T: Ord> Ord for IntervalEntry<T> {
+        fn cmp(&self, other: &Self) -> Ordering {
+            match self.interval.start.cmp(&other.interval.start) {
+                Ordering::Equal => match self.interval.end.cmp(&other.interval.end) {
+                    Ordering::Equal => self.data.cmp(&other.data),
+                    other => other,
+                },
+                other => other,
+            }
+        }
+    }
+
+    // Implement PartialOrd for IntervalEntry
+    impl<T: Ord> PartialOrd for IntervalEntry<T> {
+        fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+            Some(self.cmp(other))
+        }
+    }
 
     pub fn load_faidx(faidx_fname: &str) -> HashMap<String, usize> {
         let mut faidx = HashMap::new();
@@ -32,9 +96,9 @@ mod compute_densities {
         faidx
     }
 
-    pub fn load_gtf(gtf_file: &str, feature: &str) -> HashMap<String, ArrayBackedIntervalTree<u64, String>> {
+    pub fn load_gtf(gtf_file: &str, feature: &str) -> HashMap<String, ArrayBackedIntervalTree<IntervalEntry<String>>> {
         // into an interval tree
-        let mut exon_map: HashMap<String, ArrayBackedIntervalTree<u64, String>> = HashMap::new();
+        let mut exon_map: HashMap<String, ArrayBackedIntervalTree<IntervalEntry<String>>> = HashMap::new();
 
         if let Ok(file) = fs::File::open(gtf_file) {
             let reader = io::BufReader::new(file);
@@ -56,7 +120,8 @@ mod compute_densities {
                             Some(gene_id) => {
                                 let gene_id: Vec<&str> = gene_id.trim().split(' ').collect();
                                 let gene_id = gene_id[1].trim_matches('"').to_string();
-                                map_entry.insert(Interval::new(start..end).unwrap(), gene_id.clone());
+                                let gene_entry = IntervalEntry::new(gene_id.clone(), Interval::new(start..end).unwrap());
+                                map_entry.insert(gene_entry.clone());
                             },
                             None => continue,
                         }
@@ -72,7 +137,7 @@ mod compute_densities {
         exon_map
     }
 
-    pub fn compute_density(faidx: &HashMap<String, usize>, genes: &HashMap<String, ArrayBackedIntervalTree<u64,String>>, interval: &f64) -> HashMap<String, ArrayBackedIntervalTree<u64,f64>> {
+    pub fn compute_density(faidx: &HashMap<String, usize>, genes: &HashMap<String, ArrayBackedIntervalTree<IntervalEntry<String>>>, interval: &f64) -> HashMap<String, ArrayBackedIntervalTree<IntervalEntry<f64>>> {
         // iterate over faidx
         // for every chromosome iterate in intervals of specified resolution
         // for every interval pull slice of the interval tree
@@ -106,8 +171,8 @@ mod compute_densities {
                 }
 
                 // update gene_count
-                seqid_densities.insert(Interval::new(start..(start + interval.clone() as u64)).unwrap(), unique_genes.len() as f64);
-
+                let density_entry = IntervalEntry::new(unique_genes.len() as f64, Interval::new(start..(start + interval.clone() as u64)).unwrap());
+                seqid_densities.insert(density_entry.clone());
                 // update start
                 start += interval.clone() as u64;
             }
@@ -116,7 +181,7 @@ mod compute_densities {
         densities
     }
 
-    pub fn normalize(densities: &HashMap<String, ArrayBackedIntervalTree<u64,f64>>) -> HashMap<String, ArrayBackedIntervalTree<u64,f64>> {
+    pub fn normalize(densities: &HashMap<String, ArrayBackedIntervalTree<IntervalEntry<f64>>>) -> HashMap<String, ArrayBackedIntervalTree<IntervalEntry<f64>>> {
         // find maximum value
         let mut max_value = 0.0;
         for (_seqid, seqid_density) in densities.iter() {
@@ -137,14 +202,15 @@ mod compute_densities {
                 let start = interval.interval().start;
                 let end = interval.interval().end;
                 let seqid_density = interval.data();
-                seqid_normalized_density.insert(Interval::new(start..end).unwrap(), seqid_density / max_value);
+                let density_entry = IntervalEntry::new(seqid_density / max_value, Interval::new(start..end).unwrap());
+                seqid_normalized_density.insert(density_entry.clone());
             }
         }
 
         normalized_densities
     }
 
-    pub fn report(densities: &HashMap<String, ArrayBackedIntervalTree<u64,f64>>, outfname: Option<&String>) {
+    pub fn report(densities: &HashMap<String, ArrayBackedIntervalTree<IntervalEntry<f64>>>, outfname: Option<&String>) {
         match outfname {
             Some(outfname) => {
                 let mut out_fp = fs::File::create(outfname).unwrap();
