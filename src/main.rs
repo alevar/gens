@@ -154,7 +154,12 @@ mod compute_densities {
             let end = *length as u64;
 
             // get reference to the interval tree for the chromosome
-            let gene_tree = genes.get(seqid).unwrap();
+            let mut dummy_empty_tree: ArrayBackedIntervalTree<IntervalEntry<String>> = ArrayBackedIntervalTree::new();
+            dummy_empty_tree.index();
+            let gene_tree: &ArrayBackedIntervalTree<IntervalEntry<String>> = match genes.get(seqid) {
+                Some(value) => value,
+                None => &dummy_empty_tree,
+            };
 
             // iterate over the intervals of specified resolution/interval
             while start < end {
@@ -273,7 +278,7 @@ fn main() {
             .short('r')
             .long("resolution")
             .help("Resolution for which densities will be computed. If 1000000 is specified, densities will be computed for 1Mb windows.")
-            .default_value("1000000")
+            .default_value("10000000")
             .value_name("FLOAT")
             .value_parser(clap::value_parser!(f64))
         )
